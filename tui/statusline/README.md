@@ -23,7 +23,7 @@ El instalador:
 2. agrega `"./statusline"` a `plugins` en `~/.config/opencode/cli.json` (si falta);
 3. respalda la versión anterior si era distinta.
 
-Después hay que **reiniciar OpenCode**: los plugins de la TUI se cargan al iniciar.
+Después aplica los cambios con `opencode reload` (recarga la TUI sin cerrar la sesión). Si la barra no cambia, reinicia OpenCode: el plugin se vuelve a cargar al iniciar.
 
 ## Comprobar que está al día
 
@@ -51,6 +51,10 @@ Tres cosas comprobadas midiendo la terminal, por si hay que rehacer las filas:
 1. **`<span fg>` no colorea.** El runtime dibuja el texto del span pero descarta el color. Para tener varios colores hay que usar un `<text fg={...}>` por tramo.
 2. **`content` con `StyledText` no sirve.** Se imprime `[object Object]`: el runtime convierte el objeto a texto. Por eso el color va en textos separados, no en un texto con tramos.
 3. **Un `<text>` vacío ocupa una celda.** Si la barra no tiene relleno (0%) o está llena (100%), ese tramo hay que omitirlo con una condición; si no, la barra se corre una columna y la fila deja de alinear.
+4. **El slot `app` sirve para superponer.** Su contenido se posiciona contra la raíz de la pantalla, así que `position="absolute"` con `left`/`top` en coordenadas de la terminal (no negativas) dibuja encima del resto. Con `top` negativo se sale de la pantalla y no se ve.
+5. **En un slot, llamar la función, no usarla como componente.** `<FreeOverlay />` se ejecuta una sola vez: si en ese momento no hay datos devuelve `null` y nunca más se actualiza. `FreeOverlay()` dentro de `render` se reevalúa con cada cambio de señal.
+
+Los handlers de mouse (`onMouseOver`, `onMouseOut`, `onMouseDown`) sí llegan al contenido de `sidebar.footer`: el hover muestra la tarjeta, salir la oculta y el clic la fija.
 
 Para que las filas no se corran, la etiqueta va en una caja de ancho fijo (`width={5}`, `flexShrink={0}`) y cada fila ocupa el ancho disponible (`width="100%"`). Las filas se separan con `gap={1}`.
 

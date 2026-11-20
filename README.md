@@ -16,7 +16,7 @@ Configuración y utilidades para medir el consumo de OpenCode y mostrarlo en la 
 ./install.sh --check  # verifica que la copia coincide con el repo
 ```
 
-Luego reinicia OpenCode. La fila `free` aparece dentro de la lista `Límites`, junto a `5h`, `sem` y `mes`; pasa el mouse por encima (o haz clic) para ver el detalle. `/uso` muestra todo el desglose.
+Luego ejecuta `opencode reload` (o reinicia OpenCode si no reacciona). La fila `free` aparece dentro de la lista `Límites`, junto a `5h`, `sem` y `mes`; pasa el mouse por encima (o haz clic) para ver el detalle. `/uso` muestra todo el desglose.
 
 ## Uso del estimador por separado
 

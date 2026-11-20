@@ -186,7 +186,7 @@ El plugin vive en [`tui/statusline/tui.tsx`](../tui/statusline/tui.tsx) y se ins
 - El comando `/uso` (o `statusline.usage` en la paleta) muestra el detalle completo: límites de Go, llamadas usadas, techo, tokens (sin caché y de caché), reinicio y bloqueos de la ventana.
 - El script se busca en este orden: `OPENCODE_FREE_QUOTA_SCRIPT`, `~/.config/opencode/statusline/free-quota.sh` y la ruta del repo.
 
-Los plugins de la TUI se cargan al iniciar, así que hay que reiniciar OpenCode para ver el bloque nuevo.
+Para aplicar cambios en el plugin basta `opencode reload`; si la sidebar no reacciona, reinicia OpenCode. Las limitaciones del runtime al dibujar varias filas con color están anotadas en [`tui/statusline/README.md`](../tui/statusline/README.md#notas-de-render-tui-de-opencode).
 
 ## Consultas SQL reutilizables
 

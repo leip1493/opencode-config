@@ -61,7 +61,7 @@ if [ "$MODE" = "check" ]; then
     echo "falta      cli.json con \"./statusline\" en plugins"
     status=1
   fi
-  [ "$status" -eq 0 ] && echo && echo "Todo al día. Reinicia OpenCode si cambió algo."
+  [ "$status" -eq 0 ] && echo && echo "Todo al día. Si acabas de instalar, ejecuta: opencode reload"
   exit "$status"
 fi
 
@@ -111,4 +111,4 @@ else
 fi
 
 echo
-echo "Listo. Reinicia OpenCode para cargar el plugin."
+echo "Listo. Ejecuta: opencode reload   (si la barra no cambia, reinicia OpenCode)"

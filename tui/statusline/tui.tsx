@@ -434,7 +434,7 @@ export default Plugin.define({
 
     context.ui.slot({
       append: "app",
-      render: () => <FreeOverlay />,
+      render: () => FreeOverlay(),
     })
 
     context.keymap.layer(() => ({
