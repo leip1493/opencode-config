@@ -1,13 +1,24 @@
 # opencode-config
 
-Notas y utilidades para entender y medir el consumo de OpenCode.
+Configuración y utilidades para medir el consumo de OpenCode y mostrarlo en la barra lateral.
 
 ## Contenido
 
+- [`tui/statusline/`](tui/statusline/) — plugin de la TUI con dos bloques: límites de OpenCode Go y estimación de los modelos free. Incluye instrucciones.
+- [`scripts/free-quota.sh`](scripts/free-quota.sh) — estima el consumo de la ventana free en curso y el margen antes del próximo bloqueo.
+- [`install.sh`](install.sh) — instala el plugin y el script en `~/.config/opencode/statusline`.
 - [`docs/cuota-free-opencode.md`](docs/cuota-free-opencode.md) — qué se puede y qué no saber sobre la cuota de los modelos free, hallazgos medidos y consultas SQL reutilizables.
-- [`scripts/free-quota.sh`](scripts/free-quota.sh) — estima el consumo de la ventana en curso y el margen que queda antes del próximo bloqueo.
 
-## Uso rápido
+## Instalación rápida
+
+```sh
+./install.sh          # copia el plugin y el script a ~/.config/opencode/statusline
+./install.sh --check  # verifica que la copia coincide con el repo
+```
+
+Luego reinicia OpenCode. La fila `free` aparece dentro de la lista `Límites`, junto a `5h`, `sem` y `mes`; pasa el mouse por encima (o haz clic) para ver el detalle. `/uso` muestra todo el desglose.
+
+## Uso del estimador por separado
 
 ```sh
 ./scripts/free-quota.sh              # resumen de la ventana en curso
