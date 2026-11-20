@@ -18,6 +18,30 @@ Configuración y utilidades para medir el consumo de OpenCode y mostrarlo en la 
 
 Luego ejecuta `opencode reload` (o reinicia OpenCode si no reacciona). La fila `free` aparece dentro de la lista `Límites`, junto a `5h`, `sem` y `mes`; pasa el mouse por encima (o haz clic) para ver el detalle. `/uso` muestra todo el desglose.
 
+## Pruebas
+
+```sh
+./scripts/test.sh
+```
+
+Corre sin red ni datos reales: crea una base SQLite de prueba, apunta `HOME`, `XDG_DATA_HOME`, `LOCALAPPDATA` y `APPDATA` a carpetas temporales, simula `date` de BSD y de GNU, y verifica la búsqueda de la base, el techo de los bloqueos duros, el respaldo de rutas de Windows y el instalador.
+
+No cubre el dibujo de la TUI ni diferencias reales de Windows (permisos, rutas nativas). Para eso hace falta un CI con matriz macOS/Linux/Windows. Si `shellcheck` está instalado, también lo ejecuta.
+
+## Requisitos por sistema
+
+| Sistema | Qué hace falta |
+|---|---|
+| **macOS** | Nada extra: `bash`, `sqlite3` y `date` vienen de serie. |
+| **Linux** | `bash` y `sqlite3` (con JSON1, estándar desde SQLite 3.24). |
+| **Windows** | [Git Bash](https://git-scm.com/download/win) y `sqlite3` en el `PATH` (`scoop install sqlite` o `choco install sqlite`). |
+
+El plugin detecta solo dónde está bash y dónde vive la configuración/base de OpenCode (XDG, APPDATA, `~/.config`, `~/.local/share`, `%LOCALAPPDATA%`). Si tu instalación es distinta:
+
+- `OPENCODE_BASH` — ruta al bash a usar.
+- `OPENCODE_DB` — ruta de `opencode.db`.
+- `OPENCODE_CONFIG_DIR` — directorio de configuración de OpenCode.
+
 ## Uso del estimador por separado
 
 ```sh
@@ -40,3 +64,7 @@ Todo se lee **en solo lectura** de la base local de OpenCode. No se escribe ni s
 
 - Sin secretos en el repo: la base contiene credenciales, no se copia aquí.
 - Los números son **estimaciones**: el servidor no publica la cuota de los modelos free.
+
+## Licencia
+
+MIT. Ver [LICENSE](LICENSE).

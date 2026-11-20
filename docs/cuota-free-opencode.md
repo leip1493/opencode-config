@@ -184,7 +184,8 @@ El plugin vive en [`tui/statusline/tui.tsx`](../tui/statusline/tui.tsx) y se ins
 - Al pasar el mouse por encima aparece una tarjeta centrada en la ventana con el detalle: ventana, llamadas usadas/techo, tokens usados/techo, caché, último 429 y reinicio. Un clic la fija y otro la suelta.
 - Si una ventana supera el techo en llamadas **y** tokens sin bloquearse, aparece `recalibrando · 429 HH:MM`: la referencia quedó vieja y se corrige con el próximo bloqueo duro.
 - El comando `/uso` (o `statusline.usage` en la paleta) muestra el detalle completo: límites de Go, llamadas usadas, techo, tokens (sin caché y de caché), reinicio y bloqueos de la ventana.
-- El script se busca en este orden: `OPENCODE_FREE_QUOTA_SCRIPT`, `~/.config/opencode/statusline/free-quota.sh` y la ruta del repo.
+- El script se busca en este orden: `OPENCODE_FREE_QUOTA_SCRIPT`, cada directorio de configuración candidato y la ruta del repo.
+- Funciona en macOS, Linux y Windows (Git Bash + `sqlite3`). El plugin busca bash en las rutas típicas y la base en XDG, APPDATA y `~/Library/Application Support`; se puede forzar con `OPENCODE_BASH`, `OPENCODE_CONFIG_DIR` y `OPENCODE_DB`.
 
 Para aplicar cambios en el plugin basta `opencode reload`; si la sidebar no reacciona, reinicia OpenCode. Las limitaciones del runtime al dibujar varias filas con color están anotadas en [`tui/statusline/README.md`](../tui/statusline/README.md#notas-de-render-tui-de-opencode).
 

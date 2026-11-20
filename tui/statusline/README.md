@@ -33,6 +33,12 @@ Después aplica los cambios con `opencode reload` (recarga la TUI sin cerrar la 
 
 Compara la copia instalada con este repo. Si algo cambió, vuelve a ejecutar `./install.sh`.
 
+Pruebas automáticas del estimador y del instalador (sin tocar tu configuración):
+
+```sh
+./scripts/test.sh
+```
+
 ## Cómo se calcula el bloque free
 
 - **Ventana:** diaria, con reinicio a las `00:26:48 UTC` (20:26 en UTC-4). Se puede cambiar en `scripts/free-quota.sh` con `FREE_RESET_UTC`.
@@ -58,11 +64,23 @@ Los handlers de mouse (`onMouseOver`, `onMouseOut`, `onMouseDown`) sí llegan al
 
 Para que las filas no se corran, la etiqueta va en una caja de ancho fijo (`width={5}`, `flexShrink={0}`) y cada fila ocupa el ancho disponible (`width="100%"`). Las filas se separan con `gap={1}`.
 
-## Dependencias
+## Dependencias y sistemas
 
-- `bash`, `sqlite3`, `date` y `awk` (en macOS vienen de serie).
-- La base local de OpenCode en `~/.local/share/opencode/opencode.db`.
-- Opcional: `OPENCODE_FREE_QUOTA_SCRIPT` para apuntar a otro `free-quota.sh`.
+| Sistema | Requisitos |
+|---|---|
+| **macOS** | `bash`, `sqlite3`, `date` y `awk` (de serie). |
+| **Linux** | `bash` y `sqlite3` (con JSON1). |
+| **Windows** | Git Bash y `sqlite3` en el `PATH`. `install.sh` se ejecuta desde Git Bash. |
+
+El plugin resuelve las rutas solo:
+
+- **bash:** `OPENCODE_BASH`, luego `$SHELL` si es bash, y si no las rutas típicas (`/bin/bash`, `/usr/local/bin/bash`, `C:/Program Files/Git/bin/bash.exe`, …).
+- **script:** `OPENCODE_FREE_QUOTA_SCRIPT`, cada directorio de configuración candidato y la ruta del repo.
+- **base de datos:** `free-quota.sh` la busca en `XDG_DATA_HOME`, `~/.local/share`, `%LOCALAPPDATA%`, `%APPDATA%` y `~/Library/Application Support`, y en Git Bash traduce con `cygpath` entre rutas POSIX y nativas.
+
+Variables para forzar rutas: `OPENCODE_BASH`, `OPENCODE_DB`, `OPENCODE_CONFIG_DIR` y `OPENCODE_FREE_QUOTA_SCRIPT`.
+
+`date` se detecta por capacidad (`-r` en BSD/macOS, `-d @` en GNU/Linux), así que no hay que tocar nada según el sistema.
 
 ## Replicar en otra PC
 

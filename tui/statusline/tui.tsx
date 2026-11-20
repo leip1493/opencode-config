@@ -7,14 +7,23 @@ import { createSignal } from "solid-js"
 const POLL_MS = 60_000
 const FREE_POLL_MS = 120_000
 const SIDEBAR_BREAKPOINT = 120
-const CONFIG_DIR = process.env.XDG_CONFIG_HOME
-  ? `${process.env.XDG_CONFIG_HOME}/opencode`
-  : `${process.env.HOME ?? ""}/.config/opencode`
+const IS_WINDOWS = process.platform === "win32"
+const HOME = process.env.HOME || process.env.USERPROFILE || ""
+
+// La configuración de OpenCode puede vivir en XDG, en ~/.config o, en Windows,
+// bajo APPDATA. Se prueban todas y se usa la primera que exista.
+const CONFIG_DIRS = [
+  process.env.OPENCODE_CONFIG_DIR,
+  process.env.XDG_CONFIG_HOME ? `${process.env.XDG_CONFIG_HOME}/opencode` : "",
+  process.env.APPDATA ? `${process.env.APPDATA}/opencode` : "",
+  HOME ? `${HOME}/.config/opencode` : "",
+  HOME ? `${HOME}/AppData/Roaming/opencode` : "",
+].filter((value): value is string => !!value)
 
 const FREE_SCRIPT_CANDIDATES = [
   process.env.OPENCODE_FREE_QUOTA_SCRIPT,
-  `${CONFIG_DIR}/statusline/free-quota.sh`,
-  `${process.env.HOME ?? ""}/Documents/repositorios/opencode-config/scripts/free-quota.sh`,
+  ...CONFIG_DIRS.map((dir) => `${dir}/statusline/free-quota.sh`),
+  HOME ? `${HOME}/Documents/repositorios/opencode-config/scripts/free-quota.sh` : "",
 ].filter((value): value is string => !!value)
 
 const OK = "#22c55e"
@@ -124,6 +133,22 @@ function fmtDay(value?: string) {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${clock(value)}`
 }
 
+// bash no vive en el mismo sitio en cada sistema. OPENCODE_BASH manda; si no,
+// se usa el SHELL si es bash, luego el PATH y por último las rutas típicas.
+function findBash(exists: (path: string) => boolean) {
+  if (process.env.OPENCODE_BASH) return process.env.OPENCODE_BASH
+  const shell = process.env.SHELL
+  if (shell && /bash(\.exe)?$/i.test(shell)) return shell
+  const candidates = IS_WINDOWS
+    ? [
+        "C:/Program Files/Git/bin/bash.exe",
+        "C:/Program Files/Git/usr/bin/bash.exe",
+        "C:/Program Files (x86)/Git/bin/bash.exe",
+      ]
+    : ["/bin/bash", "/usr/bin/bash", "/usr/local/bin/bash", "/opt/homebrew/bin/bash"]
+  return candidates.find((candidate) => exists(candidate)) ?? "bash"
+}
+
 export default Plugin.define({
   id: "statusline",
   setup(context) {
@@ -155,9 +180,12 @@ export default Plugin.define({
         const { existsSync } = await import("node:fs")
         const script = FREE_SCRIPT_CANDIDATES.find((candidate) => existsSync(candidate))
         if (!script) throw new Error("no se encontró free-quota.sh")
+        const bash = findBash(existsSync)
         const { execFile } = await import("node:child_process")
         const { promisify } = await import("node:util")
-        const { stdout } = await promisify(execFile)("/bin/bash", [script, "--json"], {
+        // En Windows, bash (Git Bash) espera la ruta con barras normales.
+        const scriptPath = IS_WINDOWS ? script.replace(/\\/g, "/") : script
+        const { stdout } = await promisify(execFile)(bash, [scriptPath, "--json"], {
           timeout: 20_000,
           maxBuffer: 1024 * 1024,
         })

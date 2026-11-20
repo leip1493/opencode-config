@@ -3,7 +3,9 @@
 # Lee en solo lectura la base local de OpenCode. No modifica nada.
 set -euo pipefail
 
-DB="${OPENCODE_DB:-$HOME/.local/share/opencode/opencode.db}"
+# Ruta de la base: OPENCODE_DB manda. Si no, se busca en las ubicaciones
+# típicas de macOS, Linux y Windows (Git Bash).
+DB_OVERRIDE="${OPENCODE_DB:-}"
 FREE_RESET_UTC="${FREE_RESET_UTC:-00:26:48}"
 TRANSIENT_SECS="${FREE_TRANSIENT_SECS:-600}"
 MODE="resumen"
@@ -34,7 +36,63 @@ case "${1:-}" in
   * ) echo "Opción desconocida: $1" >&2; usage >&2; exit 1 ;;
 esac
 
-[ -r "$DB" ] || { echo "No se puede leer la base: $DB" >&2; exit 1; }
+command -v sqlite3 >/dev/null 2>&1 || {
+  echo "Falta sqlite3 en el PATH." >&2
+  echo "  macOS/Linux: suele venir instalado." >&2
+  echo "  Windows: instálalo con 'scoop install sqlite', 'choco install sqlite' o desde sqlite.org." >&2
+  exit 1
+}
+
+# En Git Bash las rutas nativas y POSIX no son intercambiables; cygpath las traduce.
+if command -v cygpath >/dev/null 2>&1; then
+  to_posix() { cygpath -u "$1" 2>/dev/null || printf '%s' "$1"; }
+  to_native() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
+else
+  to_posix() { printf '%s' "$1"; }
+  to_native() { printf '%s' "$1"; }
+fi
+
+probe_db() {
+  [ -n "${1:-}" ] || return 1
+  sqlite3 -readonly "$1" "select 1" >/dev/null 2>&1
+}
+
+usable_db() {
+  local candidate="$1" alt
+  if probe_db "$candidate"; then printf '%s' "$candidate"; return 0; fi
+  alt="$(to_posix "$candidate")"
+  if [ "$alt" != "$candidate" ] && probe_db "$alt"; then printf '%s' "$alt"; return 0; fi
+  alt="$(to_native "$candidate")"
+  if [ "$alt" != "$candidate" ] && probe_db "$alt"; then printf '%s' "$alt"; return 0; fi
+  return 1
+}
+
+find_db() {
+  local candidates=() candidate
+  [ -n "${XDG_DATA_HOME:-}" ] && candidates+=("$XDG_DATA_HOME/opencode/opencode.db")
+  [ -n "${HOME:-}" ] && candidates+=("$HOME/.local/share/opencode/opencode.db")
+  [ -n "${LOCALAPPDATA:-}" ] && candidates+=("$LOCALAPPDATA/opencode/opencode.db")
+  [ -n "${APPDATA:-}" ] && candidates+=("$APPDATA/opencode/opencode.db")
+  [ -n "${HOME:-}" ] && candidates+=("$HOME/Library/Application Support/opencode/opencode.db")
+  [ -n "${HOME:-}" ] && candidates+=("$HOME/AppData/Local/opencode/opencode.db")
+  for candidate in "${candidates[@]}"; do
+    if usable_db "$candidate"; then return 0; fi
+  done
+  return 1
+}
+
+if [ -n "$DB_OVERRIDE" ]; then
+  DB="$(usable_db "$DB_OVERRIDE")" || {
+    echo "No se puede leer OPENCODE_DB: $DB_OVERRIDE" >&2
+    exit 1
+  }
+else
+  DB="$(find_db)" || {
+    echo "No se encontró la base de OpenCode." >&2
+    echo "  Indica la ruta con: OPENCODE_DB=/ruta/a/opencode.db free-quota.sh" >&2
+    exit 1
+  }
+fi
 
 IFS=: read -r ah am as <<< "$FREE_RESET_UTC"
 ANCHOR=$(( 10#$ah * 3600 + 10#$am * 60 + 10#$as ))
@@ -155,8 +213,17 @@ if [ -n "$LAST" ]; then
   fi
 fi
 
-fmt_ts() { date -u -r "$1" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -u -d "@$1" '+%Y-%m-%d %H:%M:%S'; }
-fmt_local() { date -r "$1" '+%H:%M' 2>/dev/null || date -d "@$1" '+%H:%M'; }
+# BSD/macOS usa -r; GNU/Linux usa -d @. Se elige una vez según lo que soporte date.
+if date -u -r 0 '+%s' >/dev/null 2>&1; then
+  fmt_ts() { date -u -r "$1" '+%Y-%m-%d %H:%M:%S'; }
+  fmt_local() { date -r "$1" '+%H:%M'; }
+elif date -u -d '@0' '+%s' >/dev/null 2>&1; then
+  fmt_ts() { date -u -d "@$1" '+%Y-%m-%d %H:%M:%S'; }
+  fmt_local() { date -d "@$1" '+%H:%M'; }
+else
+  echo "El comando date no soporta marcas de tiempo; instala coreutils." >&2
+  exit 1
+fi
 human() {
   awk -v n="${1:-0}" 'BEGIN{
     if (n>=1e9) printf "%.2fB", n/1e9

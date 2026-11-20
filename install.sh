@@ -3,7 +3,21 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_DIR="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
+# Configuración de OpenCode: OPENCODE_CONFIG_DIR manda; si no, se usa la que ya
+# exista (XDG, APPDATA en Windows, o ~/.config).
+resolve_config_dir() {
+  if [ -n "${OPENCODE_CONFIG_DIR:-}" ]; then printf '%s' "$OPENCODE_CONFIG_DIR"; return; fi
+  if [ -n "${XDG_CONFIG_HOME:-}" ]; then printf '%s' "$XDG_CONFIG_HOME/opencode"; return; fi
+  if [ -n "${APPDATA:-}" ] && [ -d "$APPDATA/opencode" ]; then printf '%s' "$APPDATA/opencode"; return; fi
+  if [ -d "$HOME/.config/opencode" ]; then printf '%s' "$HOME/.config/opencode"; return; fi
+  case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+      if [ -n "${APPDATA:-}" ]; then printf '%s' "$APPDATA/opencode"; return; fi
+      ;;
+  esac
+  printf '%s' "$HOME/.config/opencode"
+}
+CONFIG_DIR="$(resolve_config_dir)"
 TARGET_DIR="$CONFIG_DIR/statusline"
 CLI_JSON="$CONFIG_DIR/cli.json"
 
@@ -22,7 +36,12 @@ Uso: install.sh [--check]
   --help         Esta ayuda.
 
 Variables:
-  OPENCODE_CONFIG_DIR   Configuración de OpenCode (por defecto ~/.config/opencode)
+  OPENCODE_CONFIG_DIR   Configuración de OpenCode (por defecto la que exista:
+                        XDG, APPDATA en Windows, o ~/.config/opencode)
+
+  Requisitos por sistema:
+    macOS / Linux   bash, sqlite3, python3 (opcional, para cli.json)
+    Windows         Git Bash, sqlite3 en el PATH, python3 (opcional)
 TXT
 }
 
@@ -82,7 +101,7 @@ backup "$TARGET_DIR/free-quota.sh" "$SRC_QUOTA"
 
 cp "$SRC_PLUGIN" "$TARGET_DIR/tui.tsx"
 cp "$SRC_QUOTA" "$TARGET_DIR/free-quota.sh"
-chmod +x "$TARGET_DIR/free-quota.sh"
+chmod +x "$TARGET_DIR/free-quota.sh" 2>/dev/null || true
 echo "copiado    $TARGET_DIR/tui.tsx"
 echo "copiado    $TARGET_DIR/free-quota.sh"
 
