@@ -112,7 +112,11 @@ sql() {
     "$DB" "$1"
 }
 
-FREE="type='assistant' and json_extract(data,'\$.model.id') like '%-free'"
+# Los free con cuota diaria son los del proveedor opencode (Console): son los
+# que generan 429 provider.free-limit. Los del proveedor opencode-go entran
+# dentro de la cuota de la suscripción Go y solo se reportan aparte.
+FREE="type='assistant' and json_extract(data,'\$.model.id') like '%-free' and json_extract(data,'\$.model.providerID')='opencode'"
+GO_FREE="type='assistant' and json_extract(data,'\$.model.id') like '%-free' and json_extract(data,'\$.model.providerID')='opencode-go'"
 
 # --- consumo de la ventana en curso ---
 IFS='|' read -r USED_CALLS USED_TOK USED_CACHE < <(sql "
@@ -124,9 +128,19 @@ IFS='|' read -r USED_CALLS USED_TOK USED_CACHE < <(sql "
     and json_extract(data,'\$.error.type') is null
     and time_created >= @ws*1000 and time_created < @we*1000;")
 
+# --- free incluidos en Go (informativo: no tienen techo propio) ---
+IFS='|' read -r GO_CALLS GO_TOK < <(sql "
+  select count(*),
+         ifnull(sum(json_extract(data,'\$.tokens.input')+json_extract(data,'\$.tokens.output')+json_extract(data,'\$.tokens.reasoning')),0)
+  from session_message
+  where $GO_FREE
+    and json_extract(data,'\$.error.type') is null
+    and time_created >= @ws*1000 and time_created < @we*1000;")
+
 IFS='|' read -r WIN_BLOCKS < <(sql "
   select count(*) from session_message
   where type='assistant'
+    and json_extract(data,'\$.model.providerID')='opencode'
     and json_extract(data,'\$.error.type')='provider.free-limit'
     and time_created >= @ws*1000 and time_created < @we*1000;")
 
@@ -138,19 +152,23 @@ REF=$(sql "
       (strftime('%s', date(time_created/1000 - @anchor,'unixepoch')) + @anchor) * 1000 ws,
       (select min(s.time_created) from session_message s
         where s.type='assistant' and json_extract(s.data,'\$.model.id') like '%-free'
+          and json_extract(s.data,'\$.model.providerID')='opencode'
           and json_extract(s.data,'\$.error.type') is null
           and s.time_created > session_message.time_created) next_ok
     from session_message
-    where type='assistant' and json_extract(data,'\$.error.type')='provider.free-limit'
+    where type='assistant' and json_extract(data,'\$.model.providerID')='opencode'
+      and json_extract(data,'\$.error.type')='provider.free-limit'
   ), u as (
     select b.t, b.reset, b.next_ok,
       (select count(*) from session_message s
         where s.type='assistant' and json_extract(s.data,'\$.model.id') like '%-free'
+          and json_extract(s.data,'\$.model.providerID')='opencode'
           and json_extract(s.data,'\$.error.type') is null
           and s.time_created >= b.ws and s.time_created < b.t) calls,
       (select ifnull(sum(json_extract(s.data,'\$.tokens.input')+json_extract(s.data,'\$.tokens.output')+json_extract(s.data,'\$.tokens.reasoning')),0)
         from session_message s
         where s.type='assistant' and json_extract(s.data,'\$.model.id') like '%-free'
+          and json_extract(s.data,'\$.model.providerID')='opencode'
           and json_extract(s.data,'\$.error.type') is null
           and s.time_created >= b.ws and s.time_created < b.t) tokens
     from b
@@ -159,13 +177,15 @@ REF=$(sql "
     where next_ok is null or next_ok >= reset
   ), mx as (select max(calls) m from hard)
   select
-    (select calls  from hard, mx where calls  >= max(20, mx.m/10) order by calls asc,  t asc limit 1),
-    (select tokens from hard, mx where calls  >= max(20, mx.m/10) order by tokens asc, t asc limit 1),
-    (select t      from hard, mx where calls  >= max(20, mx.m/10) order by t desc limit 1);")
+    (select calls from hard, mx where calls >= max(20, mx.m/10) order by calls asc,  t asc limit 1),
+    (select t     from hard, mx where calls >= max(20, mx.m/10) order by calls asc,  t asc limit 1),
+    (select tokens from hard, mx where calls >= max(20, mx.m/10) order by tokens asc, t asc limit 1),
+    (select t     from hard, mx where calls >= max(20, mx.m/10) order by tokens asc, t asc limit 1),
+    (select t     from hard, mx where calls >= max(20, mx.m/10) order by t desc limit 1);")
 
-REF_CALLS=""; REF_TOK=""; REF_T=""; REF_TRANSIENT=""
+REF_CALLS=""; REF_CALLS_T=""; REF_TOK=""; REF_TOK_T=""; REF_T=""; REF_TRANSIENT=""
 if [ -n "$REF" ]; then
-  IFS='|' read -r REF_CALLS REF_TOK REF_T <<< "$REF"
+  IFS='|' read -r REF_CALLS REF_CALLS_T REF_TOK REF_TOK_T REF_T <<< "$REF"
 fi
 
 # --- piso: mayor consumo de una ventana sin bloqueos ---
@@ -173,8 +193,10 @@ IFS='|' read -r PAST_CLEAN < <(sql "
   with d as (
     select date(time_created/1000 - @anchor,'unixepoch') dia,
            sum(case when json_extract(data,'\$.model.id') like '%-free'
+                     and json_extract(data,'\$.model.providerID')='opencode'
                      and json_extract(data,'\$.error.type') is null then 1 else 0 end) calls,
-           sum(case when json_extract(data,'\$.error.type')='provider.free-limit' then 1 else 0 end) blocks
+           sum(case when json_extract(data,'\$.model.providerID')='opencode'
+                     and json_extract(data,'\$.error.type')='provider.free-limit' then 1 else 0 end) blocks
     from session_message where type='assistant' group by dia
   )
   select ifnull(max(calls),0) from d
@@ -194,12 +216,14 @@ fi
 LAST=$(sql "
   with b as (
     select time_created t from session_message
-    where type='assistant' and json_extract(data,'\$.error.type')='provider.free-limit'
+    where type='assistant' and json_extract(data,'\$.model.providerID')='opencode'
+      and json_extract(data,'\$.error.type')='provider.free-limit'
     order by time_created desc limit 1
   )
   select b.t,
     (select min(s.time_created) from session_message s
       where s.type='assistant' and json_extract(s.data,'\$.model.id') like '%-free'
+        and json_extract(s.data,'\$.model.providerID')='opencode'
         and json_extract(s.data,'\$.error.type') is null
         and s.time_created > b.t)
   from b;")
@@ -257,9 +281,12 @@ if [ "$MODE" = "json" ]; then
   "window_end": "$(fmt_ts "$WE")Z",
   "now": "$(fmt_ts "$NOW")Z",
   "used": { "calls": $USED_CALLS, "tokens": $USED_TOK, "cache_read": $USED_CACHE },
+  "go_free": { "calls": $GO_CALLS, "tokens": $GO_TOK },
   "reference": {
     "calls": ${REF_CALLS:-null},
     "tokens": ${REF_TOK:-null},
+    "calls_at": "$([ -n "$REF_CALLS_T" ] && echo "$(fmt_ts "$((REF_CALLS_T/1000))")Z" || echo "")",
+    "tokens_at": "$([ -n "$REF_TOK_T" ] && echo "$(fmt_ts "$((REF_TOK_T/1000))")Z" || echo "")",
     "at": "$([ -n "$REF_T" ] && echo "$(fmt_ts "$((REF_T/1000))")Z" || echo "")",
     "transient": $([ "${REF_TRANSIENT:-0}" = "1" ] && echo true || echo false)
   },
@@ -281,21 +308,26 @@ if [ "$MODE" = "historico" ]; then
     with d as (
       select date(time_created/1000 - @anchor,'unixepoch') dia,
              sum(case when json_extract(data,'\$.model.id') like '%-free'
+                       and json_extract(data,'\$.model.providerID')='opencode'
                        and json_extract(data,'\$.error.type') is null then 1 else 0 end) calls,
              sum(case when json_extract(data,'\$.model.id') like '%-free'
+                       and json_extract(data,'\$.model.providerID')='opencode'
                        and json_extract(data,'\$.error.type') is null
                      then json_extract(data,'\$.tokens.input')+json_extract(data,'\$.tokens.output')+json_extract(data,'\$.tokens.reasoning') else 0 end) tokens,
-             sum(case when json_extract(data,'\$.error.type')='provider.free-limit' then 1 else 0 end) blocks
+             sum(case when json_extract(data,'\$.model.providerID')='opencode'
+                       and json_extract(data,'\$.error.type')='provider.free-limit' then 1 else 0 end) blocks
       from session_message where type='assistant' group by dia
     )
     select d.dia, d.calls, d.tokens, d.blocks,
       case when d.blocks = 0 then null else
         (select count(*) from session_message s
           where s.type='assistant' and json_extract(s.data,'\$.model.id') like '%-free'
+            and json_extract(s.data,'\$.model.providerID')='opencode'
             and json_extract(s.data,'\$.error.type') is null
             and s.time_created >= (strftime('%s', d.dia) + @anchor)*1000
             and s.time_created < (select max(b.time_created) from session_message b
-              where b.type='assistant' and json_extract(b.data,'\$.error.type')='provider.free-limit'
+              where b.type='assistant' and json_extract(b.data,'\$.model.providerID')='opencode'
+                and json_extract(b.data,'\$.error.type')='provider.free-limit'
                 and date(b.time_created/1000 - @anchor,'unixepoch') = d.dia))
       end
     from d order by d.dia;" \
@@ -318,6 +350,7 @@ printf 'tokens    %-10s piso %-10s techo %-10s quedan %s\n' \
   "$(human "$USED_TOK")" "$(human "$USED_TOK")" "$(human "${REF_TOK:-0}")" \
   "$(if [ -z "$REF_CALLS" ] || [ "${REF_STALE:-0}" = "1" ]; then echo "?"; else echo "$(human "$TOK_LO")–$(human "$TOK_HI")"; fi)"
 printf 'caché     %-10s\n' "$(human "$USED_CACHE")"
+printf 'free Go   %-10s · %-8s (incluido en 5h/sem/mes)\n' "$(thousands "$GO_CALLS")" "$(human "$GO_TOK")"
 printf '429       %s en esta ventana' "$WIN_BLOCKS"
 if [ -n "$LAST_T" ]; then
   if [ "${LAST_TRANSIENT:-0}" = "1" ]; then
@@ -329,7 +362,7 @@ else
   echo
 fi
 if [ -n "$REF_CALLS" ]; then
-  echo "referencia muestra del $(fmt_ts "$((REF_T/1000))"): $(thousands "$REF_CALLS") llamadas / $(human "$REF_TOK") tokens"
+  echo "referencia  $(thousands "$REF_CALLS") llamadas del $(fmt_ts "$((REF_CALLS_T/1000))") · $(human "$REF_TOK") tokens del $(fmt_ts "$((REF_TOK_T/1000))")"
 fi
 printf 'reinicio  en %s (%s)\n' "$(remaining_rest)" "$(fmt_local "$WE") local"
 if [ "${REF_STALE:-0}" = "1" ]; then

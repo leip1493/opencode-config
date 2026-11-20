@@ -9,7 +9,7 @@ Documento de trabajo. Recoge qué se puede y qué no se puede saber sobre la cuo
 - **Saldo restante:** no existe endpoint ni cabecera que lo exponga.
 - **Instante de reinicio:** el error 429 trae `retryAfterMs`, pero en la práctica no es confiable.
 - **Consumo propio:** sí, cada llamada queda registrada en la base local.
-- **Estimación de margen:** sí, acotando entre lo máximo usado sin bloquear y lo mínimo usado al bloquear.
+- **Estimación de margen:** sí, acotando entre lo máximo usado sin bloquear y lo mínimo usado al bloquear. Solo aplica a los free de **Console** (`model.providerID = 'opencode'`): los free de `opencode-go` consumen la suscripción Go y no tienen un techo diario propio.
 
 ## Qué sí se puede consultar
 
@@ -127,7 +127,7 @@ Reparto por modelo:
 
 Conclusiones:
 
-- **El cupo es compartido entre todos los free.** En el mismo minuto fallaron modelos distintos con el mismo reinicio: cambiar de modelo no evita el bloqueo.
+- **El cupo es compartido entre todos los free de Console.** En el mismo minuto fallaron modelos distintos con el mismo reinicio: cambiar de modelo no evita el bloqueo. Los 22 bloqueos registrados son todos del proveedor `opencode`; no hay ninguno en `opencode-go`.
 - **La mayoría de los bloqueos son transitorios** (1 min a 5.7 h): se recuperan antes del reinicio anunciado y no reflejan el cupo. El `retryAfterMs` no es confiable.
 - **El único bloqueo duro medido** llegó 25 minutos antes del reinicio diario (20 nov 00:01 → 00:26:48 UTC) y no se recuperó: ese es el que sirve de referencia.
 - **El reinicio anunciado cae sobre las 00:26:48 UTC** (20:26 local en UTC-4), lo que confirma una ventana diaria.
@@ -141,7 +141,7 @@ Conclusiones:
 | Caché leída | 40,928,768 | 44,773,760 | +3.8M |
 | Reparto | deepseek 260 · glm 138 · hy4 47 | deepseek 263 · hy4 244 | — |
 
-La referencia de 445 llamadas venía de un bloqueo **transitorio** (volvió a los 7 minutos), no del cupo real. Por eso la sidebar subestimaba las llamadas y marcaba `recalibrando` desde las 445. Con el bloqueo duro, el techo queda en **507 llamadas** y **1.35M tokens**.
+La referencia de 445 llamadas venía de un bloqueo **transitorio** (volvió a los 7 minutos), no del cupo real. Por eso la sidebar subestimaba las llamadas y marcaba `recalibrando` desde las 445. Con el bloqueo duro, el techo queda en **507 llamadas** y **1.35M tokens** (cifras del criterio original, que aún mezclaba los free de `opencode` y `opencode-go`; al filtrar solo por `opencode` el techo bajó a 229 llamadas / 745.6k tokens).
 
 Dos matices:
 
@@ -152,20 +152,22 @@ Dos matices:
 
 Datos:
 
+- **Proveedor:** solo mensajes con `model.providerID = 'opencode'` e id de modelo `-free`. Los free de `opencode-go` se cuentan aparte (`go_free` en el JSON) y no entran en el techo: están dentro de la cuota `go` de `/api/experimental/usage/limits`.
 - **Techo (U):** el menor consumo observado en un **bloqueo duro**: un 429 tras el cual no hubo ninguna llamada exitosa antes del reinicio anunciado. Es un límite superior de la cuota.
 - **Piso (L):** lo máximo consumido en una ventana que terminó sin bloquearse. Es un límite inferior.
 - La cuota real está entre `L` y `U`; el margen restante, entre `0` y `U - consumo`.
 - Los bloqueos **transitorios** no tocan la referencia: miden capacidad, no cupo.
 
-Ejemplo (20 nov 2026, con la referencia recalculada):
+Ejemplo (20 nov 2026, ya con el filtro por proveedor `opencode`):
 
-| Métrica | Usado (L) | Referencia (U) | Margen |
-|---|---:|---:|---:|
-| Llamadas | 507 | 507 | 0 |
-| Tokens sin caché | 1,352,914 | 1,352,914 | 0 |
-| Tokens con caché | 44.8M | 44.8M | 0 |
+| Métrica | Usado | Referencia (U) | Bloqueo que la fijó | Margen |
+|---|---:|---:|---|---:|
+| Llamadas | 229 | 229 | 20 nov 04:14:58 UTC | 0 |
+| Tokens sin caché | 1,601,341 | 745,553 | 20 nov 00:01:09 UTC | 0 (superado) |
 
-Al empezar la ventana siguiente, el margen vuelve a mostrarse completo: `507 llamadas · 1.35M tokens`.
+Los dos techos vienen de **bloqueos distintos**: el script toma el mínimo de llamadas y el mínimo de tokens por separado, y expone cada fecha en `reference.calls_at` y `reference.tokens_at` del JSON. `reference.at` queda como el bloqueo duro más reciente, no como la fecha de esos mínimos.
+
+Al empezar la ventana siguiente, el margen vuelve a mostrarse completo con los valores vigentes del techo.
 
 La referencia se actualiza sola:
 
@@ -177,13 +179,14 @@ La referencia se actualiza sola:
 
 ## Integración en la sidebar
 
-El plugin vive en [`tui/statusline/tui.tsx`](../tui/statusline/tui.tsx) y se instala con `./install.sh` en `~/.config/opencode/statusline/`. Muestra una sola lista `Límites` con las filas de Go (`5h`, `sem`, `mes`) y una fila `free` con el mismo formato, alimentada por `scripts/free-quota.sh --json`.
+El plugin vive en [`tui/statusline/tui.tsx`](../tui/statusline/tui.tsx) y se instala con `./install.sh` en `~/.config/opencode/statusline/`. Muestra una sola lista `Límites` con las filas de Go (`5h`, `sem`, `mes`), la fila `free` (solo free de Console, con cuota diaria) y una fila `go-free` informativa, alimentadas por `scripts/free-quota.sh --json`.
 
 - Se refresca cada 2 minutos (los límites de Go, cada 1).
-- La fila `free` usa la dimensión más exigida (llamadas o tokens) contra su techo, para que se lea de un vistazo. El color recorre verde → naranja → rojo con paradas en 25%, 50% y 75%.
-- Al pasar el mouse por encima aparece una tarjeta centrada en la ventana con el detalle: ventana, llamadas usadas/techo, tokens usados/techo, caché, último 429 y reinicio. Un clic la fija y otro la suelta.
+- La fila `free` usa la dimensión más exigida (llamadas o tokens) contra su techo, para que se lea de un vistazo. El color recorre verde → naranja → rojo con paradas en 25%, 50% y 75%. La fila `go-free` de debajo es la que distingue ambos grupos, así que `free` no lleva ningún sufijo.
+- La fila `go-free` no tiene barra: muestra las llamadas de los free de `opencode-go` en la ventana y recuerda que consumen la cuota Go (`5h` / `sem` / `mes`).
+- Al pasar el mouse por encima de `free` aparece una tarjeta centrada en la ventana con el detalle: ventana, llamadas usadas/techo, tokens usados/techo, caché, consumo `go-free`, último 429 y reinicio. Un clic la fija y otro la suelta.
 - Si una ventana supera el techo en llamadas **y** tokens sin bloquearse, aparece `recalibrando · 429 HH:MM`: la referencia quedó vieja y se corrige con el próximo bloqueo duro.
-- El comando `/uso` (o `statusline.usage` en la paleta) muestra el detalle completo: límites de Go, llamadas usadas, techo, tokens (sin caché y de caché), reinicio y bloqueos de la ventana.
+- El comando `/uso` (o `statusline.usage` en la paleta) muestra el detalle completo: límites de Go, llamadas usadas, techo, tokens (sin caché y de caché), consumo `go-free`, reinicio y bloqueos de la ventana.
 - El script se busca en este orden: `OPENCODE_FREE_QUOTA_SCRIPT`, cada directorio de configuración candidato y la ruta del repo.
 - Funciona en macOS, Linux y Windows (Git Bash + `sqlite3`). El plugin busca bash en las rutas típicas y la base en XDG, APPDATA y `~/Library/Application Support`; se puede forzar con `OPENCODE_BASH`, `OPENCODE_CONFIG_DIR` y `OPENCODE_DB`.
 

@@ -43,6 +43,7 @@ type FreeQuota = {
   window_start: string
   window_end: string
   used: { calls: number; tokens: number; cache_read: number }
+  go_free: { calls: number; tokens: number }
   reference: { calls: number | null; tokens: number | null; at: string; transient: boolean }
   floor_calls: number
   remaining: { calls: [number, number]; tokens: [number, number] } | null
@@ -327,7 +328,7 @@ export default Plugin.define({
           borderStyle="rounded"
           borderColor={CARD_BORDER}
           backgroundColor={CARD_BG}
-          title="Límites free · estimado"
+          title="Gratis · cuota diaria"
           titleColor={MUTED}
           titleAlignment="center"
           padding={1}
@@ -352,6 +353,10 @@ export default Plugin.define({
             </>,
           )}
           {row("caché", <text fg={TEXT}>{`${human(quota.used.cache_read)} leídos`}</text>)}
+          {row(
+            "go-free",
+            <text fg={MUTED}>{`${quota.go_free?.calls ?? 0} llam · ${human(quota.go_free?.tokens ?? 0)} tok (en 5h/sem/mes)`}</text>,
+          )}
           {row("429", <text fg={TEXT}>{lastBlock}</text>)}
           {row(
             "reinicio",
@@ -385,18 +390,21 @@ export default Plugin.define({
             {limits?.weekly ? <BarRow label="sem" meter={limits.weekly} /> : null}
             {limits?.monthly ? <BarRow label="mes" meter={limits.monthly} /> : null}
             {quota ? (
-              <box
-                flexDirection="column"
-                onMouseOver={() => setFreeHover(true)}
-                onMouseOut={() => setFreeHover(false)}
-                onMouseDown={() => {
-                  const next = !freePinned()
-                  setFreePinned(next)
-                  if (!next) setFreeHover(false)
-                }}
-              >
-                <FreeRow quota={quota} />
-              </box>
+              <>
+                <box
+                  flexDirection="column"
+                  onMouseOver={() => setFreeHover(true)}
+                  onMouseOut={() => setFreeHover(false)}
+                  onMouseDown={() => {
+                    const next = !freePinned()
+                    setFreePinned(next)
+                    if (!next) setFreeHover(false)
+                  }}
+                >
+                  <FreeRow quota={quota} />
+                </box>
+                <text fg={MUTED}>{`go-free → ${quota.go_free?.calls ?? 0} llam · en Go`}</text>
+              </>
             ) : (
               <text fg={MUTED}>{`free ${freeFailed() ? "n/d" : "…"}`}</text>
             )}
@@ -504,7 +512,7 @@ export default Plugin.define({
               }
 
               const quota = free()
-              const freeLines: string[] = ["", "Free (estimado)"]
+              const freeLines: string[] = ["", "Gratis (Console, cuota diaria)"]
               if (!quota) {
                 freeLines.push(freeFailed() ? "sin datos" : "…")
               } else {
@@ -525,6 +533,9 @@ export default Plugin.define({
                     `quedan    ${quota.remaining.calls[1]} llam · ${human(quota.remaining.tokens[1])} tok`,
                   )
                 }
+                freeLines.push(
+                  `go-free   ${quota.go_free?.calls ?? 0} llam · ${human(quota.go_free?.tokens ?? 0)} tok (en 5h/sem/mes)`,
+                )
                 freeLines.push(
                   `ventana   reinicia en ${fmtDuration(parseTs(quota.window_end) - Date.now())}`,
                 )

@@ -3,9 +3,10 @@
 Plugin de la TUI que agrega una lista de límites a la barra lateral:
 
 - **Go** — filas `5h`, `sem` y `mes` con su barra y reinicio. Sale del endpoint experimental de uso.
-- **free** — una fila más, con el mismo formato, que usa la dimensión más exigida (llamadas o tokens) contra su techo estimado. Sale de `free-quota.sh`, que lee en solo lectura la base local de OpenCode.
+- **free** — una fila más, con el mismo formato, que usa la dimensión más exigida (llamadas o tokens) contra su techo estimado. Sale de `free-quota.sh`, que lee en solo lectura la base local de OpenCode. Mide **solo los free del proveedor `opencode`** (Console): son los que tienen cuota diaria y generan `provider.free-limit`.
+- **go-free** — fila informativa sin barra: llamadas de los free del proveedor `opencode-go` en la ventana actual. No tienen techo propio; consumen la suscripción Go, así que se reflejan en `5h` / `sem` / `mes`.
 
-Al pasar el mouse sobre la fila `free` aparece una tarjeta centrada en la ventana con el detalle: ventana, llamadas y tokens usados contra su techo, caché, último 429 y reinicio. Un clic la fija y otro clic la suelta.
+Al pasar el mouse sobre la fila `free` aparece una tarjeta centrada en la ventana con el detalle: ventana, llamadas y tokens usados contra su techo, caché, consumo `go-free`, último 429 y reinicio. Un clic la fija y otro clic la suelta.
 
 Además, el comando `/uso` (o `statusline.usage` en la paleta) muestra el detalle de ambos.
 
@@ -41,6 +42,7 @@ Pruebas automáticas del estimador y del instalador (sin tocar tu configuración
 
 ## Cómo se calcula el bloque free
 
+- **Proveedor:** solo mensajes con `model.providerID = 'opencode'` y un id de modelo `-free`. Los modelos `opencode-go/*-free` se excluyen del consumo y del techo, y se reportan aparte en `go_free`. El sufijo `-free` por sí solo no basta: `opencode/big-pickle` cuesta 0 sin llevarlo.
 - **Ventana:** diaria, con reinicio a las `00:26:48 UTC` (20:26 en UTC-4). Se puede cambiar en `scripts/free-quota.sh` con `FREE_RESET_UTC`.
 - **Techo:** el menor consumo observado en un bloqueo **duro**, es decir, un 429 sin recuperación antes del reinicio anunciado. Los bloqueos transitorios no cuentan.
 - **Barra:** la dimensión más exigida entre llamadas y tokens, contra su techo. El color va de verde a naranja y rojo con paradas en 25%, 50% y 75%.

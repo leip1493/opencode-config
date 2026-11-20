@@ -63,6 +63,7 @@ WS=$(( (NOW - NOW % 86400) + ANCHOR ))
 [ "$WS" -gt "$NOW" ] && WS=$((WS - 86400))
 
 CALLS=25
+REF_TS=$(ts $((WS + 2600)) '+%Y-%m-%d %H:%M:%S')
 
 # make_db <ruta> <llamadas> <con_bloqueo 0|1>
 make_db() {
@@ -70,11 +71,11 @@ make_db() {
   sqlite3 "$db" "create table session_message (type text, time_created integer, data text);"
   for ((i = 0; i < calls; i++)); do
     t=$((WS + 600 + i * 60))
-    sqlite3 "$db" "insert into session_message values ('assistant', $((t * 1000)), '{\"model\":{\"id\":\"deepseek-v4.1-flash-free\"},\"tokens\":{\"input\":100,\"output\":50,\"reasoning\":10,\"cache\":{\"read\":5}}}');"
+    sqlite3 "$db" "insert into session_message values ('assistant', $((t * 1000)), '{\"model\":{\"id\":\"deepseek-v4.1-flash-free\",\"providerID\":\"opencode\"},\"tokens\":{\"input\":100,\"output\":50,\"reasoning\":10,\"cache\":{\"read\":5}}}');"
   done
   if [ "$block" = 1 ]; then
     t=$((WS + 2600))
-    sqlite3 "$db" "insert into session_message values ('assistant', $((t * 1000)), '{\"model\":{\"id\":\"deepseek-v4.1-flash-free\"},\"error\":{\"type\":\"provider.free-limit\",\"retryAfterMs\":86400000}}');"
+    sqlite3 "$db" "insert into session_message values ('assistant', $((t * 1000)), '{\"model\":{\"id\":\"deepseek-v4.1-flash-free\",\"providerID\":\"opencode\"},\"error\":{\"type\":\"provider.free-limit\",\"retryAfterMs\":86400000}}');"
   fi
 }
 
@@ -101,6 +102,8 @@ assert_contains "registra el bloqueo de la ventana" "$out" '"blocks_in_window": 
 ref=$(printf '%s' "$out" | sed -n '/"reference": {/,/}/p')
 assert_contains "el bloqueo duro fija el techo de llamadas" "$ref" '"calls": 25,'
 assert_contains "el bloqueo duro fija el techo de tokens" "$ref" '"tokens": 4000,'
+assert_contains "fecha del techo de llamadas" "$ref" "\"calls_at\": \"${REF_TS}Z\""
+assert_contains "fecha del techo de tokens" "$ref" "\"tokens_at\": \"${REF_TS}Z\""
 assert_contains "el bloqueo no es transitorio" "$ref" '"transient": false'
 
 mkdir -p "$TMP/win/opencode"
@@ -132,6 +135,28 @@ out=$(run_quota "$TMP/nohome" XDG_DATA_HOME="$TMP/clean"); code=$?
 assert_exit "lee una ventana sin bloqueos" "$code" 0
 assert_contains "no inventa techo sin bloqueos" "$out" '"calls": null,'
 assert_contains "no hay 429 en la ventana" "$out" '"blocks_in_window": 0,'
+
+# --- separación por proveedor ------------------------------------------------
+# Los free de Console (opencode) tienen cuota diaria; los de opencode-go van
+# dentro de la suscripción Go y no deben contar para el techo.
+mkdir -p "$TMP/mixed/opencode"
+MIXDB="$TMP/mixed/opencode/opencode.db"
+sqlite3 "$MIXDB" "create table session_message (type text, time_created integer, data text);"
+for ((i = 0; i < 25; i++)); do
+  t=$((WS + 600 + i * 60))
+  sqlite3 "$MIXDB" "insert into session_message values ('assistant', $((t * 1000)), '{\"model\":{\"id\":\"deepseek-v4.1-flash-free\",\"providerID\":\"opencode\"},\"tokens\":{\"input\":100,\"output\":50,\"reasoning\":10,\"cache\":{\"read\":5}}}');"
+done
+for ((i = 0; i < 10; i++)); do
+  t=$((WS + 600 + i * 60))
+  sqlite3 "$MIXDB" "insert into session_message values ('assistant', $((t * 1000)), '{\"model\":{\"id\":\"hy4-flash-free\",\"providerID\":\"opencode-go\"},\"tokens\":{\"input\":100,\"output\":50,\"reasoning\":10,\"cache\":{\"read\":5}}}');"
+done
+t=$((WS + 2600))
+sqlite3 "$MIXDB" "insert into session_message values ('assistant', $((t * 1000)), '{\"model\":{\"id\":\"deepseek-v4.1-flash-free\",\"providerID\":\"opencode\"},\"error\":{\"type\":\"provider.free-limit\",\"retryAfterMs\":86400000}}');"
+out=$(run_quota "$TMP/nohome" XDG_DATA_HOME="$TMP/mixed"); code=$?
+assert_exit "lee base con ambos proveedores" "$code" 0
+assert_contains "free mide solo los de Console" "$out" '"used": { "calls": 25,'
+assert_contains "el techo ignora los free de Go" "$out" '"tokens": 4000,'
+assert_contains "los free de Go se reportan aparte" "$out" '"go_free": { "calls": 10,'
 
 # --- date de BSD y de GNU ---------------------------------------------------
 # El estilo nativo ya quedó probado arriba. Aquí se emula el otro para cubrir
